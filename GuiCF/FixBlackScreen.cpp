@@ -1,71 +1,26 @@
 #include "stdafx.h"
-#include "Win32Helper.h"
+#include "FixBlackScreen.h"
 
-DWORD LastError = INJ_ERR_SUCCESS;
-DWORD dwError = ERROR_SUCCESS;
+#ifdef UNICODE
+#undef Module32First
+#undef Module32Next
+#undef MODULEENTRY32
+#endif
 
-// 
-//  ClipOrCenterRectToMonitor 
-// 
-//  The most common problem apps have when running on a 
-//  multimonitor system is that they "clip" or "pin" windows 
-//  based on the SM_CXSCREEN and SM_CYSCREEN system metrics. 
-//  Because of app compatibility reasons these system metrics 
-//  return the size of the primary monitor. 
-// 
-//  This shows how you use the multi-monitor functions 
-//  to do the same thing. 
-// 
-void ClipOrCenterRectToMonitor(LPRECT prc, UINT flags)
+typedef _Return_type_success_(return >= 0) LONG NTSTATUS;
+
+typedef NTSTATUS(__stdcall * f_NtCreateThreadEx)(HANDLE * pHandle, ACCESS_MASK DesiredAccess,
+	void * pAttr, HANDLE hProc, void * pFunc, void * pArg, ULONG  Flags, SIZE_T ZeroBits,
+	SIZE_T StackSize, SIZE_T MaxStackSize, void * pAttrListOut);
+
+typedef BOOL(__stdcall * f_SetWindowDisplayAffinity)(HWND hWnd, DWORD dwAffinity);
+
+struct SET_WDA_DATA
 {
-	HMONITOR hMonitor;
-	MONITORINFO mi;
-	RECT        rc;
-	int         w = prc->right - prc->left;
-	int         h = prc->bottom - prc->top;
-
-	// 
-	// get the nearest monitor to the passed rect. 
-	// 
-	hMonitor = MonitorFromRect(prc, MONITOR_DEFAULTTONEAREST);
-
-	// 
-	// get the work area or entire monitor rect. 
-	// 
-	mi.cbSize = sizeof(mi);
-	GetMonitorInfo(hMonitor, &mi);
-
-	if (flags & MONITOR_WORKAREA)
-		rc = mi.rcWork;
-	else
-		rc = mi.rcMonitor;
-
-	// 
-	// center or clip the passed rect to the monitor rect 
-	// 
-	if (flags & MONITOR_CENTER)
-	{
-		prc->left = rc.left + (rc.right - rc.left - w) / 2;
-		prc->top = rc.top + (rc.bottom - rc.top - h) / 2;
-		prc->right = prc->left + w;
-		prc->bottom = prc->top + h;
-	}
-	else
-	{
-		prc->left = max(rc.left, min(rc.right - w, prc->left));
-		prc->top = max(rc.top, min(rc.bottom - h, prc->top));
-		prc->right = prc->left + w;
-		prc->bottom = prc->top + h;
-	}
-}
-
-void ClipOrCenterWindowToMonitor(HWND hwnd, UINT flags)
-{
-	RECT rc;
-	GetWindowRect(hwnd, &rc);
-	ClipOrCenterRectToMonitor(&rc, flags);
-	SetWindowPos(hwnd, NULL, rc.left, rc.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
+	f_SetWindowDisplayAffinity	pSetWindowsDisplayAffinity;
+	DWORD                       dwAffinity;
+	HWND                        hWnd;
+};
 
 struct EnumWindowsCallbackArgs {
 	EnumWindowsCallbackArgs(DWORD p) : pid(p) { }
@@ -73,13 +28,121 @@ struct EnumWindowsCallbackArgs {
 	std::vector<HWND> handles;
 };
 
+void __stdcall		SetWdaShell(SET_WDA_DATA * pData);
+std::vector<HWND>	GetHwnds(DWORD pid);
+bool				SetPrivilegeA(const char * szPrivilege, bool bState);
+DWORD				FindProcessId(const std::wstring& processName);
+HANDLE				StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijack, bool Fastcall);
+void				ErrorMsg(DWORD Err1, DWORD Err2);
+DWORD LastError =	ERR_SUCCESS;
+DWORD dwError =		ERROR_SUCCESS;
+
+/**
+ * Enable screen capture on a window protected by SetWindowsDisplayAffinity(WDA_MONITOR)
+ * 
+* @param tProcName :    target process name (Overwatch.exe)
+* @param HijackThread : true to hijack thread or false to create one
+*/
+DWORD FixBlackScreen(const std::wstring& tProcName, bool HijackThread)
+{
+	DWORD PID = FindProcessId(tProcName);
+	if (!PID)
+	{
+		MessageBoxA(nullptr, "Target process not found", "ERROR", MB_ICONERROR);
+		return 0;
+	}
+
+	if (!SetPrivilegeA("SeDebugPrivilege", true))
+	{
+		ErrorMsg(ERR_SET_PRIV_FAIL, dwError);
+		return 0;
+	}
+
+	HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
+	if (!hProc)
+	{
+		return ERR_INVALID_PROC_HANDLE;
+	}
+
+	SET_WDA_DATA data;
+	std::vector<HWND> hwnds = GetHwnds(PID);
+	if (hwnds.size() > 0)
+	{
+		data.hWnd = hwnds[0];
+		data.dwAffinity = WDA_NONE;
+	}
+	else
+	{
+		ErrorMsg(ERR_CANT_FIND_HWND, GetLastError());
+		return 0;
+	}
+
+	HINSTANCE hU32DLL = GetModuleHandleA("User32.dll");
+	if (!hU32DLL)
+	{
+		LastError = GetLastError();
+		return ERR_USER32DLL_MISSING;
+	}
+
+	FARPROC pFunc = GetProcAddress(hU32DLL, "SetWindowDisplayAffinity");
+	if (!pFunc)
+	{
+		LastError = GetLastError();
+		return INJ_ERR_SETWDA_MISSING;
+	}
+
+	data.pSetWindowsDisplayAffinity = ReCa<f_SetWindowDisplayAffinity>(pFunc);
+
+	BYTE* pArg = ReCa<BYTE*>(VirtualAllocEx(hProc, nullptr, sizeof(SET_WDA_DATA) + 0x200,
+	                                        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	if (!pArg)
+	{
+		LastError = GetLastError();
+		return ERR_CANT_ALLOC_MEM;
+	}
+
+	if (!WriteProcessMemory(hProc, pArg, &data, sizeof(SET_WDA_DATA), nullptr))
+	{
+		LastError = GetLastError();
+		VirtualFreeEx(hProc, pArg, MEM_RELEASE, 0);
+		return ERR_WPM_FAIL;
+	}
+
+	if (!WriteProcessMemory(hProc, pArg + sizeof(SET_WDA_DATA), SetWdaShell, 0x100, nullptr))
+	{
+		LastError = GetLastError();
+		VirtualFreeEx(hProc, pArg, MEM_RELEASE, 0);
+		return ERR_WPM_FAIL;
+	}
+
+	HANDLE hThread = StartRoutine(hProc, pArg + sizeof(SET_WDA_DATA), pArg, HijackThread, false);
+	if (!hThread)
+	{
+		VirtualFreeEx(hProc, pArg, 0, MEM_RELEASE);
+		return ERR_CANT_CREATE_THREAD;
+	}
+	if (!HijackThread)
+	{
+		WaitForSingleObject(hThread, INFINITE);
+		CloseHandle(hThread);
+	}
+	VirtualFreeEx(hProc, pArg, 0, MEM_RELEASE);
+
+	return ERR_SUCCESS;
+}
+
+void __stdcall SetWdaShell(SET_WDA_DATA * pData)
+{
+	pData->pSetWindowsDisplayAffinity(pData->hWnd, pData->dwAffinity);
+}
+
 static BOOL CALLBACK EnumWindowsCallback(HWND hnd, LPARAM lParam)
 {
-	EnumWindowsCallbackArgs *args = (EnumWindowsCallbackArgs *)lParam;
-
+	EnumWindowsCallbackArgs* args = ReCa<EnumWindowsCallbackArgs *>(lParam);
 	DWORD windowPID;
 	(void)::GetWindowThreadProcessId(hnd, &windowPID);
-	if (windowPID == args->pid) {
+	if (windowPID == args->pid)
+	{
 		args->handles.push_back(hnd);
 	}
 
@@ -89,49 +152,12 @@ static BOOL CALLBACK EnumWindowsCallback(HWND hnd, LPARAM lParam)
 std::vector<HWND> GetHwnds(DWORD pid)
 {
 	EnumWindowsCallbackArgs args(pid);
-	if (::EnumWindows(&EnumWindowsCallback, (LPARAM)&args) == FALSE) {
+	if (::EnumWindows(&EnumWindowsCallback, ReCa<LPARAM>(&args)) == FALSE)
+	{
 		return std::vector<HWND>();
 	}
 
 	return args.handles;
-}
-
-std::string FindFile(const std::string fileFullPath, BOOL excludeSelf)
-{
-	std::string foundFileName = ""; // blank string returned if not found
-	WIN32_FIND_DATAA FindFileData;
-	HANDLE hFind = FindFirstFileA(fileFullPath.c_str(), &FindFileData);
-
-	if (excludeSelf) {
-		char buffer[MAX_PATH];
-		GetModuleFileNameA(NULL, buffer, MAX_PATH);
-		std::string::size_type left = std::string(buffer).find_last_of("\\/");
-		std::string fName = std::string(buffer).substr(left + 1);
-
-		while (true) {
-			if (hFind == INVALID_HANDLE_VALUE) {
-				// FindFirstFileA failed
-				break;
-			}
-			else if (FindFileData.cFileName != fName) {
-				// Found a matching file that's not current module
-				foundFileName = FindFileData.cFileName;
-				FindClose(hFind);
-				break;
-			}
-			else if (FindNextFileA(hFind, &FindFileData) == false) {
-				// FindNextFileA failed
-				break;
-			}
-		}
-	}
-	else if (hFind != INVALID_HANDLE_VALUE) {
-		// found a matching file
-		foundFileName = FindFileData.cFileName;
-		FindClose(hFind);
-	}
-
-	return foundFileName;
 }
 
 bool SetPrivilegeA(const char * szPrivilege, bool bState)
@@ -200,7 +226,7 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 {
 	if (!Hijack)
 	{
-		auto _NtCTE = reinterpret_cast<f_NtCreateThreadEx>(GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtCreateThreadEx"));
+		auto _NtCTE = ReCa<f_NtCreateThreadEx>(GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtCreateThreadEx"));
 		if (!_NtCTE)
 		{
 			HANDLE hThread = CreateRemoteThreadEx(hTargetProc, nullptr, 0, ReCa<LPTHREAD_START_ROUTINE>(pRoutine), pArg, 0, nullptr, nullptr);
@@ -221,7 +247,7 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 	DWORD dwProcId = GetProcessId(hTargetProc);
 	if (!dwProcId)
 	{
-		LastError = INJ_ERR_ADV_INV_PROC;
+		LastError = ERR_ADV_INV_PROC;
 		return nullptr;
 	}
 
@@ -246,20 +272,20 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 
 	if (!Ret)
 	{
-		LastError = INJ_ERR_ADV_NO_THREADS;
+		LastError = ERR_ADV_NO_THREADS;
 		return nullptr;
 	}
 
 	HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, TE32.th32ThreadID);
 	if (!hThread)
 	{
-		LastError = INJ_ERR_ADV_CANT_OPEN_THREAD;
+		LastError = ERR_ADV_CANT_OPEN_THREAD;
 		return nullptr;
 	}
 
-	if (SuspendThread(hThread) == (DWORD)-1)
+	if (SuspendThread(hThread) == static_cast<DWORD>(-1))
 	{
-		LastError = INJ_ERR_ADV_SUSPEND_FAIL;
+		LastError = ERR_ADV_SUSPEND_FAIL;
 		CloseHandle(hThread);
 		return nullptr;
 	}
@@ -268,7 +294,7 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 	OldContext.ContextFlags = CONTEXT_CONTROL;
 	if (!GetThreadContext(hThread, &OldContext))
 	{
-		LastError = INJ_ERR_ADV_GET_CONTEXT_FAIL;
+		LastError = ERR_ADV_GET_CONTEXT_FAIL;
 		ResumeThread(hThread);
 		CloseHandle(hThread);
 		return nullptr;
@@ -277,7 +303,7 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 	void * pCodecave = VirtualAllocEx(hTargetProc, nullptr, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!pCodecave)
 	{
-		LastError = INJ_ERR_ADV_OUT_OF_MEMORY;
+		LastError = ERR_ADV_OUT_OF_MEMORY;
 		ResumeThread(hThread);
 		CloseHandle(hThread);
 		return nullptr;
@@ -358,7 +384,7 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 
 	if (!WriteProcessMemory(hTargetProc, pCodecave, Shellcode, sizeof(Shellcode), nullptr))
 	{
-		LastError = INJ_ERR_ADV_WPM_FAIL;
+		LastError = ERR_ADV_WPM_FAIL;
 		VirtualFreeEx(hTargetProc, pCodecave, MEM_RELEASE, 0);
 		ResumeThread(hThread);
 		CloseHandle(hThread);
@@ -367,16 +393,16 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 
 	if (!SetThreadContext(hThread, &OldContext))
 	{
-		LastError = INJ_ERR_ADV_SET_CONTEXT_FAIL;
+		LastError = ERR_ADV_SET_CONTEXT_FAIL;
 		VirtualFreeEx(hTargetProc, pCodecave, MEM_RELEASE, 0);
 		ResumeThread(hThread);
 		CloseHandle(hThread);
 		return nullptr;
 	}
 
-	if (ResumeThread(hThread) == (DWORD)-1)
+	if (ResumeThread(hThread) == static_cast<DWORD>(-1))
 	{
-		LastError = INJ_ERR_ADV_RESUME_FAIL;
+		LastError = ERR_ADV_RESUME_FAIL;
 		VirtualFreeEx(hTargetProc, pCodecave, MEM_RELEASE, 0);
 		CloseHandle(hThread);
 		return nullptr;
@@ -389,13 +415,13 @@ HANDLE StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijac
 	CloseHandle(hThread);
 	VirtualFreeEx(hTargetProc, pCodecave, MEM_RELEASE, 0);
 
-	return (HANDLE)1;
+	return ReCa<HANDLE>(1);
 }
 
 void ErrorMsg(DWORD Err1, DWORD Err2)
 {
-	char szRet[9]{ 0 };
-	char szAdv[9]{ 0 };
+	char szRet[9]{0};
+	char szAdv[9]{0};
 	_ultoa_s(Err1, szRet, 0x10);
 	_ultoa_s(Err2, szAdv, 0x10);
 	std::string Msg = "Error code: 0x";
@@ -403,5 +429,5 @@ void ErrorMsg(DWORD Err1, DWORD Err2)
 	Msg += "\nAdvanced info: 0x";
 	Msg += szAdv;
 
-	MessageBoxA(0, Msg.c_str(), "Injection failed", MB_ICONERROR);
+	MessageBoxA(nullptr, Msg.c_str(), "Failed to fix", MB_ICONERROR);
 }

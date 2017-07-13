@@ -5,32 +5,32 @@
 IStream * CreateStreamOnResource(LPCTSTR lpName, LPCTSTR lpType)
 {
 	// initialize return value
-	IStream * ipStream = NULL;
+	IStream * ipStream = nullptr;
 
 	// find the resource
-	HRSRC hrsrc = FindResource(NULL, lpName, lpType);
-	if (hrsrc == NULL)
+	HRSRC hrsrc = FindResource(nullptr, lpName, lpType);
+	if (hrsrc == nullptr)
 		goto Return;
 
 	// load the resource
-	DWORD dwResourceSize = SizeofResource(NULL, hrsrc);
-	HGLOBAL hglbImage = LoadResource(NULL, hrsrc);
-	if (hglbImage == NULL)
+	DWORD dwResourceSize = SizeofResource(nullptr, hrsrc);
+	HGLOBAL hglbImage = LoadResource(nullptr, hrsrc);
+	if (hglbImage == nullptr)
 		goto Return;
 
 	// lock the resource, getting a pointer to its data
 	LPVOID pvSourceResourceData = LockResource(hglbImage);
-	if (pvSourceResourceData == NULL)
+	if (pvSourceResourceData == nullptr)
 		goto Return;
 
 	// allocate memory to hold the resource data
 	HGLOBAL hgblResourceData = GlobalAlloc(GMEM_MOVEABLE, dwResourceSize);
-	if (hgblResourceData == NULL)
+	if (hgblResourceData == nullptr)
 		goto Return;
 
 	// get a pointer to the allocated memory
 	LPVOID pvResourceData = GlobalLock(hgblResourceData);
-	if (pvResourceData == NULL)
+	if (pvResourceData == nullptr)
 		goto FreeData;
 
 	// copy the data from the resource to the new memory block
@@ -54,12 +54,14 @@ Return:
 IWICBitmapSource * LoadBitmapFromStream(IStream * ipImageStream)
 {
 	// initialize return value
-	IWICBitmapSource * ipBitmap = NULL;
+	IWICBitmapSource * ipBitmap = nullptr;
 
 	// load WIC's PNG decoder
-	IWICBitmapDecoder * ipDecoder = NULL;
-	if (FAILED(CoCreateInstance(CLSID_WICPngDecoder, NULL, CLSCTX_INPROC_SERVER, __uuidof(ipDecoder), reinterpret_cast<void**>(&ipDecoder))))
+	IWICBitmapDecoder * ipDecoder = nullptr;
+	if (FAILED(CoCreateInstance(CLSID_WICPngDecoder, NULL,
+		CLSCTX_INPROC_SERVER, __uuidof(ipDecoder), reinterpret_cast<void**>(&ipDecoder)))) {
 		goto Return;
+	}
 
 	// load the PNG
 	if (FAILED(ipDecoder->Initialize(ipImageStream, WICDecodeMetadataCacheOnLoad)))
@@ -71,7 +73,7 @@ IWICBitmapSource * LoadBitmapFromStream(IStream * ipImageStream)
 		goto ReleaseDecoder;
 
 	// load the first frame (i.e., the image)
-	IWICBitmapFrameDecode * ipFrame = NULL;
+	IWICBitmapFrameDecode * ipFrame = nullptr;
 	if (FAILED(ipDecoder->GetFrame(0, &ipFrame)))
 		goto ReleaseDecoder;
 
@@ -91,7 +93,7 @@ Return:
 HBITMAP CreateHBITMAP(IWICBitmapSource * ipBitmap)
 {
     // initialize return value
-    HBITMAP hbmp = NULL;
+    HBITMAP hbmp = nullptr;
  
     // get image attributes and check for valid image
     UINT width = 0;
@@ -104,17 +106,17 @@ HBITMAP CreateHBITMAP(IWICBitmapSource * ipBitmap)
     ZeroMemory(&bminfo, sizeof(bminfo));
     bminfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bminfo.bmiHeader.biWidth = width;
-    bminfo.bmiHeader.biHeight = -((LONG) height);
+    bminfo.bmiHeader.biHeight = -LONG(height);
     bminfo.bmiHeader.biPlanes = 1;
     bminfo.bmiHeader.biBitCount = 32;
     bminfo.bmiHeader.biCompression = BI_RGB;
  
     // create a DIB section that can hold the image
-    void * pvImageBits = NULL;
-    HDC hdcScreen = GetDC(NULL);
-    hbmp = CreateDIBSection(hdcScreen, &bminfo, DIB_RGB_COLORS, &pvImageBits, NULL, 0);
-    ReleaseDC(NULL, hdcScreen);
-    if (hbmp == NULL)
+    void * pvImageBits = nullptr;
+    HDC hdcScreen = GetDC(nullptr);
+    hbmp = CreateDIBSection(hdcScreen, &bminfo, DIB_RGB_COLORS, &pvImageBits, nullptr, 0);
+    ReleaseDC(nullptr, hdcScreen);
+    if (hbmp == nullptr)
         goto Return;
  
     // extract the image into the HBITMAP
@@ -124,7 +126,7 @@ HBITMAP CreateHBITMAP(IWICBitmapSource * ipBitmap)
     {
         // couldn't extract image; delete HBITMAP
         DeleteObject(hbmp);
-        hbmp = NULL;
+        hbmp = nullptr;
     }
  
 Return:
@@ -132,16 +134,16 @@ Return:
 }
 HBITMAP LoadSplashImage(int resID)
 {
-	HBITMAP hbmpSplash = NULL;
+	HBITMAP hbmpSplash = nullptr;
 
 	// load the PNG image data into a stream
 	IStream * ipImageStream = CreateStreamOnResource(MAKEINTRESOURCE(resID), _T("PNG"));
-	if (ipImageStream == NULL)
+	if (ipImageStream == nullptr)
 		goto Return;
 
 	// load the bitmap with WIC
 	IWICBitmapSource * ipBitmap = LoadBitmapFromStream(ipImageStream);
-	if (ipBitmap == NULL)
+	if (ipBitmap == nullptr)
 		goto ReleaseStream;
 
 	// create a HBITMAP containing the image
@@ -162,15 +164,15 @@ void GetFullScreenShot(HBITMAP * hBitmap, int dWidth, int dHeight)
 	int x2 = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	int y2 = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-	HDC     hScreen = GetDC(NULL);
-	HDC     hDC = CreateCompatibleDC(hScreen);
+	HDC hScreen = GetDC(nullptr);
+	HDC hDC = CreateCompatibleDC(hScreen);
 	*hBitmap = CreateCompatibleBitmap(hScreen, dWidth, dHeight);
 	HGDIOBJ old_obj = SelectObject(hDC, *hBitmap);
 	SetStretchBltMode(hDC, HALFTONE);
-	BOOL    bRet = StretchBlt(hDC, 0, 0, dWidth, dHeight, hScreen, x1, y1, x2 - x1, y2 - y1, SRCCOPY);
+	StretchBlt(hDC, 0, 0, dWidth, dHeight, hScreen, x1, y1, x2 - x1, y2 - y1, SRCCOPY);
 
 	SelectObject(hDC, old_obj);
 	DeleteDC(hDC);
-	ReleaseDC(NULL, hScreen);
+	ReleaseDC(nullptr, hScreen);
 	DeleteObject(hBitmap);
 }

@@ -1,1 +1,7 @@
 .vs
+x64
+Debug
+Release
+GuiCF\Release
+GuiCF\Debug
+GuiCF\x64

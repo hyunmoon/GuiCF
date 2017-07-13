@@ -2,6 +2,7 @@
 // Microsoft Visual C++ generated include file.
 // Used by GuiCF.rc
 //
+#pragma once
 #define IDC_MYICON                      2
 #define IDD_GUICF_DIALOG                102
 #define IDS_APP_TITLE                   103

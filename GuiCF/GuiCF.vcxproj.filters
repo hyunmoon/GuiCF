@@ -27,10 +27,10 @@
     <ClInclude Include="SimpleIni.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Win32Helper.h">
+    <ClInclude Include="WICHelper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WICHelper.h">
+    <ClInclude Include="FixBlackScreen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -41,10 +41,10 @@
     <ClCompile Include="GuiCF.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Win32Helper.cpp">
+    <ClCompile Include="WICHelper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WICHelper.cpp">
+    <ClCompile Include="FixBlackScreen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
