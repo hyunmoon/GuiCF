@@ -4,7 +4,7 @@
 #include "FixBlackScreen.h"
 #include "Psapi.h"
 #include "Shellapi.h"
-#include "Mmsystem.h" // for PlaySound
+#include "Mmsystem.h"
 #pragma comment(lib, "Psapi.lib")
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Winmm.lib")
@@ -41,7 +41,6 @@ WCHAR szWindowClass[MAX_LOADSTRING];               // the main window class nam
 
 std::string         WORKING_DIR;                   // CfGui current directory
 std::string         CF_FILEPATH;                   // CF file path
-PROCESS_INFORMATION CF_PROCINFO;                   // CF process info
 
 BOOL                IsCfActive;                    // CfBot unpaused or paused
 BOOL                Is76PauseActive;               // S76 pause related
@@ -49,8 +48,6 @@ INPUT               CfPauseKeyInput;               // Cf pause key info from ini
 std::string         CfCurrIni;                     // Cf currently loaded ini file
 std::string         CfCurrSpeed;                   // Cf currently loaded speed value
 std::string         CfCurrPull;                    // Cf currently loaded pull value
-STARTUPINFOA        NpStartupInfo;                 // Notepad startup info
-PROCESS_INFORMATION NpProcInfo;                    // Notepad process info
 CSimpleIniA         hIni;                          // Ini handler
 
 UINT                hBarHeight;                    // main window title bar height
@@ -67,14 +64,14 @@ HANDLE KeyMonitorThread   = nullptr;               // Thread for PauseOnUltProc
 HANDLE g_hChildStd_OUT_Rd = nullptr;               // CF exe stdout read
 HANDLE g_hChildStd_OUT_Wr = nullptr;               // CF exe stdout write
 
-HWND     mHwnd;         // Main   window
+HWND     mHwnd;         // Main window
 HWND     hWndDlg;       // Dialog window
-HWND     S76Check;      // Checkbox
-HWND     S76Txt;        // Checkbox text
-HWND     SpeedValue;    // Speed  static
-HWND     IniValue;      // Ini    static
-HWND     PullValue;     // Pull   static
-HWND     ImgBox;        // Image  static
+HWND     S76Check;      // Checkbox button
+HWND     S76Txt;        // S76 PS static
+HWND     SpeedValue;    // Speed static
+HWND     IniValue;      // Ini static
+HWND     PullValue;     // Pull static
+HWND     ImgBox;        // Image static
 HBITMAP  hImageOn;      // Bot Unpaused image
 HBITMAP  hImageOff;     // Bot Paused image
 
@@ -270,7 +267,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	RECT rcClient, rcWind;
 	GetClientRect(hWnd, &rcClient);
 	GetWindowRect(hWnd, &rcWind);
-	hBarHeight = (rcWind.bottom - rcWind.top) - rcClient.bottom; // height of title bar
+	hBarHeight = rcWind.bottom - rcWind.top - rcClient.bottom; // height of title bar
 	mHwnd = hWnd;
 
 	return TRUE;
@@ -358,6 +355,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 		case IDC_CHANGE:
 		{
+			PROCESS_INFORMATION NpProcInfo;
+			STARTUPINFOA NpStartupInfo;
 			// open F*.ini in notepad, move & resize window for convenience
 			std::string configsIni = " configs\\" + CfCurrIni;
 			memset(&NpStartupInfo, 0, sizeof(NpStartupInfo));
@@ -633,7 +632,7 @@ DWORD WINAPI CFHandleProc(LPVOID lpParameter)
 	}
 	
 	// Run CF
-	CF_PROCINFO = CreateChildProcess(CF_FILEPATH);
+	PROCESS_INFORMATION CfProcInfo = CreateChildProcess(CF_FILEPATH);
 
 	std::string ExitReason = ReadFromPipe();
 	if (!ExitReason.empty()) 
@@ -644,9 +643,9 @@ DWORD WINAPI CFHandleProc(LPVOID lpParameter)
 
 	// Clean up before exit.
 	CloseHandle(g_hChildStd_OUT_Rd);
-	TerminateProcess(CF_PROCINFO.hProcess, 1);
-	CloseHandle(CF_PROCINFO.hProcess);
-	CloseHandle(CF_PROCINFO.hThread);
+	TerminateProcess(CfProcInfo.hProcess, 1);
+	CloseHandle(CfProcInfo.hProcess);
+	CloseHandle(CfProcInfo.hThread);
 
 	return 0;
 }
@@ -803,7 +802,7 @@ PROCESS_INFORMATION CreateChildProcess(std::string filePath)
 	//---------------------------------------------------------------------------------
 	//if (Settings.delay > 0 && Settings.delay < 2000) 
 	//{
-	//	Sleep(Settings.delay); // 500 ms is recommended. can't be too short, can't be too long.
+	//	Sleep(Settings.delay);
 
 	//	typedef LONG(NTAPI *NtSuspendProcess)(IN HANDLE ProcessHandle);
 	//	NtSuspendProcess pfnNtSuspendProcess = ReCa<NtSuspendProcess>(GetProcAddress(

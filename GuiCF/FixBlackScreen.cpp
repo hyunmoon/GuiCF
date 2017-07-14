@@ -28,14 +28,14 @@ struct EnumWindowsCallbackArgs {
 	std::vector<HWND> handles;
 };
 
-void __stdcall		SetWdaShell(SET_WDA_DATA * pData);
-std::vector<HWND>	GetHwnds(DWORD pid);
-bool				SetPrivilegeA(const char * szPrivilege, bool bState);
-DWORD				FindProcessId(const std::wstring& processName);
-HANDLE				StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijack, bool Fastcall);
-void				ErrorMsg(DWORD Err1, DWORD Err2);
-DWORD LastError =	ERR_SUCCESS;
-DWORD dwError =		ERROR_SUCCESS;
+void __stdcall      SetWdaShell(SET_WDA_DATA * pData);
+std::vector<HWND>   GetHwnds(DWORD pid);
+bool                SetPrivilegeA(const char * szPrivilege, bool bState);
+DWORD               FindProcessId(const std::wstring& processName);
+HANDLE              StartRoutine(HANDLE hTargetProc, void * pRoutine, void * pArg, bool Hijack, bool Fastcall);
+void                ErrorMsg(DWORD Err1, DWORD Err2);
+DWORD LastError =   ERR_SUCCESS;
+DWORD dwError =     ERROR_SUCCESS;
 
 /**
  * Enable screen capture on a window protected by SetWindowsDisplayAffinity(WDA_MONITOR)

@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "WICHelper.h"
+#include "ImageHelper.h"
 
 // Creates a stream object initialized with the data from an executable resource.
 IStream * CreateStreamOnResource(LPCTSTR lpName, LPCTSTR lpType)

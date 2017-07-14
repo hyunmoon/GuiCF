@@ -137,7 +137,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="WICHelper.h" />
+    <ClInclude Include="ImageHelper.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SimpleIni.h" />
     <ClInclude Include="stdafx.h" />
@@ -146,7 +146,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="GuiCF.cpp" />
-    <ClCompile Include="WICHelper.cpp" />
+    <ClCompile Include="ImageHelper.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
