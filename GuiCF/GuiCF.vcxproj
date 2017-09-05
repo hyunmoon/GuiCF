@@ -143,6 +143,7 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="FixBlackScreen.h" />
+    <ClInclude Include="WICHelper.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="GuiCF.cpp" />

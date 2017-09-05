@@ -413,14 +413,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			{
 				CheckDlgButton(hWnd, IDC_CHECK, BST_UNCHECKED);
 				Is76PauseActive = FALSE;
+				hIni.SetValue("", "s76pause", "0");
 			}
 			else 
 			{
+				// reset ult key state reading (clean slate)
+				GetAsyncKeyState(Settings.ultkey);
 				CheckDlgButton(hWnd, IDC_CHECK, BST_CHECKED);
 				Is76PauseActive = TRUE;
+				hIni.SetValue("", "s76pause", "1");
 			}
-			hIni.SetValue("", "s76pause", std::to_string(Is76PauseActive).c_str());
-			hIni.SaveFile("settings.ini");
 		}
 		break;
 		default:
@@ -583,13 +585,13 @@ DWORD WINAPI PauseOnUltProc(LPVOID lpParameter)
 			for (int i = 0; i < 8; i++) 
 			{
 				Sleep(500);
-				// abort if ult key pressed again
-				if (GetAsyncKeyState(Settings.ultkey))
+				// abort if bot was manually unpaused or ult key was pressed again
+				if (IsCfActive || GetAsyncKeyState(Settings.ultkey))
 					break;
 				toggle_image(&hImageOff);
 				Sleep(500);
 				// check every 0.5 sec
-				if (GetAsyncKeyState(Settings.ultkey))
+				if (IsCfActive || GetAsyncKeyState(Settings.ultkey))
 					break;
 				toggle_image(&hImageOn);
 			}
@@ -707,6 +709,11 @@ std::string ReadFromPipe()
 			}
 			else if (line.find("Bot Unpaused") != std::string::npos) 
 			{
+				// reset ult key state reading (clean slate) when unpaused.
+				// without this, given s76 pause is active,
+				// if ult key was pressed while the bot was paused, 
+				// s76 pause will be triggered as soon as the bot is unpaused.
+				GetAsyncKeyState(Settings.ultkey);
 				paused(FALSE);
 			}
 			else if (line.find("Login Successful") != std::string::npos) 
@@ -800,54 +807,54 @@ PROCESS_INFORMATION CreateChildProcess(std::string filePath)
 	}
 
 	//---------------------------------------------------------------------------------
-	//if (Settings.delay > 0 && Settings.delay < 2000) 
-	//{
-	//	Sleep(Settings.delay);
+	if (Settings.delay > 0 && Settings.delay < 2000) 
+	{
+		Sleep(Settings.delay);
 
-	//	typedef LONG(NTAPI *NtSuspendProcess)(IN HANDLE ProcessHandle);
-	//	NtSuspendProcess pfnNtSuspendProcess = ReCa<NtSuspendProcess>(GetProcAddress(
-	//		GetModuleHandleA("ntdll"), "NtSuspendProcess"));
-	//	NtSuspendProcess pfnNtResumeProcess = ReCa<NtSuspendProcess>(GetProcAddress(
-	//		GetModuleHandleA("ntdll"), "NtResumeProcess"));
+		typedef LONG(NTAPI *NtSuspendProcess)(IN HANDLE ProcessHandle);
+		NtSuspendProcess pfnNtSuspendProcess = ReCa<NtSuspendProcess>(GetProcAddress(
+			GetModuleHandleA("ntdll"), "NtSuspendProcess"));
+		NtSuspendProcess pfnNtResumeProcess = ReCa<NtSuspendProcess>(GetProcAddress(
+			GetModuleHandleA("ntdll"), "NtResumeProcess"));
 
-	//	DWORD_PTR   base_addr = 0;
-	//	DWORD       u_bytes;
+		DWORD_PTR   base_addr = 0;
+		DWORD       u_bytes;
 
-	//	// Get base address
-	//	if (EnumProcessModules(piProcInfo.hProcess, nullptr, 0, &u_bytes)) 
-	//	{
-	//		if (u_bytes) 
-	//		{
-	//			LPBYTE moduleArrayBytes = static_cast<LPBYTE>(LocalAlloc(LPTR, u_bytes));
-	//			if (moduleArrayBytes) 
-	//			{
-	//				HMODULE *moduleArray = ReCa<HMODULE *>(moduleArrayBytes);
-	//				if (EnumProcessModules(piProcInfo.hProcess, moduleArray, u_bytes, &u_bytes)) 
-	//				{
-	//					base_addr = ReCa<DWORD_PTR>(moduleArray[0]);
-	//				}
-	//				LocalFree(moduleArrayBytes);
-	//			}
-	//		}
-	//	}
+		// Get base address
+		if (EnumProcessModules(piProcInfo.hProcess, nullptr, 0, &u_bytes)) 
+		{
+			if (u_bytes) 
+			{
+				LPBYTE moduleArrayBytes = static_cast<LPBYTE>(LocalAlloc(LPTR, u_bytes));
+				if (moduleArrayBytes) 
+				{
+					HMODULE *moduleArray = ReCa<HMODULE *>(moduleArrayBytes);
+					if (EnumProcessModules(piProcInfo.hProcess, moduleArray, u_bytes, &u_bytes)) 
+					{
+						base_addr = ReCa<DWORD_PTR>(moduleArray[0]);
+					}
+					LocalFree(moduleArrayBytes);
+				}
+			}
+		}
 
-	//	if (base_addr) 
-	//	{
-	//		pfnNtSuspendProcess(piProcInfo.hProcess);
+		if (base_addr) 
+		{
+			pfnNtSuspendProcess(piProcInfo.hProcess);
 
-	//		// [PUSH "auth.cfaa.me"] to[PUSH "Exists"]
-	//		byte new_byte = 0x2C;
-	//		WriteProcessMemory(piProcInfo.hProcess, ReCa<LPVOID>(base_addr + 0x12253), 
-	//			&new_byte, sizeof new_byte, nullptr);
+			// [PUSH "auth.cfaa.me"] to[PUSH "Exists"]
+			byte new_byte = 0x2C;
+			WriteProcessMemory(piProcInfo.hProcess, ReCa<LPVOID>(base_addr + 0x12253), 
+				&new_byte, sizeof new_byte, nullptr);
 
-	//		// FF D6(call esi) to 90 D6(nop db)
-	//		new_byte = 0x90;
-	//		WriteProcessMemory(piProcInfo.hProcess, ReCa<LPVOID>(base_addr + 0x1235F), 
-	//			&new_byte, sizeof new_byte, nullptr);
+			// FF D6(call esi) to 90 D6(nop db)
+			new_byte = 0x90;
+			WriteProcessMemory(piProcInfo.hProcess, ReCa<LPVOID>(base_addr + 0x1235F), 
+				&new_byte, sizeof new_byte, nullptr);
 
-	//		pfnNtResumeProcess(piProcInfo.hProcess);
-	//	}
-	//}
+			pfnNtResumeProcess(piProcInfo.hProcess);
+		}
+	}
 	//---------------------------------------------------------------------------------
 
 	return piProcInfo;
