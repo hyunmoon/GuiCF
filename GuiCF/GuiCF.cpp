@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "SimpleIni.h"
-#include "WICHelper.h"
+#include "ImageHelper.h"
 #include "FixBlackScreen.h"
 #include "Psapi.h"
 #include "Shellapi.h"
