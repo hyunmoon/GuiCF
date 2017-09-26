@@ -23,6 +23,7 @@
 
 struct SettingsKeys {
 	UINT s76pause;
+	UINT s76pausekey;
 	UINT ultkey;
 	UINT flagged;
 	UINT delay;
@@ -51,7 +52,7 @@ std::string         CfCurrPull;                    // Cf currently loaded pull v
 CSimpleIniA         hIni;                          // Ini handler
 
 UINT                hBarHeight;                    // main window title bar height
-UINT                hIndex = 1;                    // mode switch index. start from middle.
+UINT                hIndex = 1;                    // mode switch index. start normal.
 UINT                hSavedOpacity;                 // opacity saved
 const INT           NUM_STATE = 3;                 // gui height change on right click
 const INT           WIN_HEIGHTS[NUM_STATE] = { 140, 180, 220 };
@@ -68,6 +69,7 @@ HWND     mHwnd;         // Main window
 HWND     hWndDlg;       // Dialog window
 HWND     S76Check;      // Checkbox button
 HWND     S76Txt;        // S76 PS static
+HWND     SpeedPull;     // Temporary fix
 HWND     SpeedValue;    // Speed static
 HWND     IniValue;      // Ini static
 HWND     PullValue;     // Pull static
@@ -84,7 +86,8 @@ DWORD WINAPI        PauseOnUltProc(LPVOID lpParameter);
 DWORD WINAPI        CFHandleProc(LPVOID lpParameter);
 PROCESS_INFORMATION CreateChildProcess(std::string filePath);
 std::string         ReadFromPipe();
-void                ClipOrCenterWindowToMonitor(HWND hwnd, UINT flags);
+void                ClipOrCenterWindowToMonitor(HWND hWnd, UINT flags);
+void                SwitchGuiMode(HWND hWnd);
 std::string         FindFile(const std::string fileFullPath, BOOL excludeSelf);
 
 // WinMain
@@ -194,13 +197,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	hImageOn = LoadSplashImage(IDB_PNG1);
 	hImageOff = LoadSplashImage(IDB_PNG2);
-										   
+
 	// Read from settings.ini
 	hIni.SetUnicode();
 	SI_Error rc = hIni.LoadFile("settings.ini");
 	if (rc < 0) 
 	{
 		hIni.SetValue("", "s76pause", "0");
+		hIni.SetValue("", "s76pausekey", "55");
 		hIni.SetValue("", "ultkey", "81");
 		hIni.SetValue("", "flagged", "0");
 		hIni.SetValue("", "hidecf", "0");
@@ -209,10 +213,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		hIni.SetValue("", "playsound", "1");
 		hIni.SetValue("", "xpos", "0");
 		hIni.SetValue("", "ypos", "0");
-		rc = hIni.SaveFile("settings.ini");
-		if (rc < 0) 
+		if (hIni.SaveFile("settings.ini") < 0)
 		{
-			MessageBoxA(nullptr, "Failed to save settings.ini", "ERROR", MB_ICONERROR);
+			MessageBoxA(nullptr, "Failed to create settings.ini.\nCheck your anti-virus program.",
+				"ERROR", MB_ICONERROR);
 		}
 	}
 	auto strtoi = [](const char * str, UINT defValue) 
@@ -222,6 +226,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		return ss >> result ? result : defValue;
 	};
 	Settings.s76pause =    strtoi(hIni.GetValue("", "s76pause", "0"), 0);
+	Settings.s76pausekey = strtoi(hIni.GetValue("", "s76pausekey", "55"), 0);
 	Settings.ultkey =      strtoi(hIni.GetValue("", "ultkey", "81"), 81);
 	Settings.flagged =     strtoi(hIni.GetValue("", "flagged", "0"), 0);
 	Settings.delay =       strtoi(hIni.GetValue("", "delay", "0"), 0);
@@ -251,6 +256,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		xPos, yPos,
 		WIN_WIDTH, WIN_HEIGHTS[hIndex],
 		nullptr, nullptr, hInstance, nullptr);
+
+	// temporary fix
+
 
 	if (!hWnd) 
 	{
@@ -288,33 +296,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		fontAttributes.lfHeight = 17;
 		HFONT hFont_17 = ::CreateFontIndirect(&fontAttributes);
 
-		ImgBox = CreateWindow(L"STATIC", L"PULL :", WS_VISIBLE | WS_CHILD | SS_BITMAP,
+		ImgBox = CreateWindow(L"STATIC", L"", WS_VISIBLE | WS_CHILD | SS_BITMAP,
 			0, 2, 96, 96, hWnd, NULL, hInst, NULL);
 
-		S76Check = CreateWindowEx(NULL, L"BUTTON", L"S76 PS",
-			WS_CHILD | WS_VISIBLE | BS_CHECKBOX,
-			12, 108, 20, 22, hWnd, HMENU(IDC_CHECK), hInst, nullptr);
+		S76Check = CreateWindowEx(NULL, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_CHECKBOX,
+			118, 70, 20, 22, hWnd, HMENU(IDC_CHECK), hInst, nullptr);
 
-		HWND S76Txt = CreateWindow(L"STATIC", L"S76 PS", WS_VISIBLE | WS_CHILD | SS_NOTIFY,
-			32, 111, 60, 22, hWnd, HMENU(IDC_CHECK), hInst, NULL);
+		HWND S76Txt = CreateWindow(L"STATIC", L"S76", WS_VISIBLE | WS_CHILD | SS_NOTIFY,
+			138, 71, 60, 22, hWnd, HMENU(IDC_CHECK), hInst, NULL);
 
 		HWND FixBtn = CreateWindow(L"BUTTON", L"FIX", WS_VISIBLE | WS_CHILD,
 			7, 142, 75, 32, hWnd, HMENU(IDC_FIX), hInst, NULL);
 
 		IniValue = CreateWindow(L"STATIC", L"...", WS_VISIBLE | WS_CHILD,
-			118, 18, 40, 20, hWnd, NULL, hInst, NULL);
+			118, 18, 75, 20, hWnd, NULL, hInst, NULL);
 
-		HWND SpeedTxt = CreateWindow(L"STATIC", L"SPED :", WS_VISIBLE | WS_CHILD,
-			118, 44, 45, 15, hWnd, NULL, hInst, NULL);
-
-		SpeedValue = CreateWindow(L"STATIC", L"...", WS_VISIBLE | WS_CHILD,
-			163, 43, 46, 20, hWnd, NULL, hInst, NULL);
-
-		HWND PullTxt = CreateWindow(L"STATIC", L"PULL  :", WS_VISIBLE | WS_CHILD,
-			118, 70, 45, 15, hWnd, NULL, hInst, NULL);
-
-		PullValue = CreateWindow(L"STATIC", L"...", WS_VISIBLE | WS_CHILD,
-			163, 69, 46, 20, hWnd, NULL, hInst, NULL);
+		SpeedPull = CreateWindow(L"STATIC", L"...", WS_VISIBLE | WS_CHILD,
+			118, 44, 75, 15, hWnd, NULL, hInst, NULL);
 
 		HWND ChangeBtn = CreateWindow(L"BUTTON", L"CHANGE", WS_VISIBLE | WS_CHILD,
 			118, 103, 75, 32, hWnd, HMENU(IDC_CHANGE), hInst, NULL);
@@ -327,11 +325,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		SendMessage(FixBtn,     WM_SETFONT, LPARAM(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
 		SendMessage(S76Check,   WM_SETFONT, WPARAM(hFont_17), TRUE);
 		SendMessage(S76Txt,     WM_SETFONT, WPARAM(hFont_17), TRUE);
-		SendMessage(SpeedTxt,   WM_SETFONT, WPARAM(hFont_15), TRUE);
-		SendMessage(PullTxt,    WM_SETFONT, WPARAM(hFont_15), TRUE);
-		SendMessage(SpeedValue, WM_SETFONT, WPARAM(hFont_17), TRUE);
-		SendMessage(IniValue,   WM_SETFONT, WPARAM(hFont_17), TRUE);
-		SendMessage(PullValue,  WM_SETFONT, WPARAM(hFont_17), TRUE);
+		SendMessage(SpeedPull,  WM_SETFONT, WPARAM(hFont_17), TRUE);
+		SendMessage(IniValue, WM_SETFONT, WPARAM(hFont_17), TRUE);
 		SendMessage(ImgBox, STM_SETIMAGE, IMAGE_BITMAP, LPARAM(hImageOff));
 
 		if (Settings.s76pause) 
@@ -417,8 +412,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			else 
 			{
-				// reset ult key state reading (clean slate)
+				// reset key state readings (clean slate)
 				GetAsyncKeyState(Settings.ultkey);
+				GetAsyncKeyState(Settings.s76pausekey);
 				CheckDlgButton(hWnd, IDC_CHECK, BST_CHECKED);
 				Is76PauseActive = TRUE;
 				hIni.SetValue("", "s76pause", "1");
@@ -455,33 +451,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	break;
 	case WM_RBUTTONDOWN:
 	{
-		// switch gui mode on right click. re-position window to compensate tool bar height
-		// hide fix and show button if flagged (using flagged account) is not set. b/c useless.
-		UINT mod = Settings.flagged ? NUM_STATE : NUM_STATE - 1;
-		hIndex = ++hIndex % mod;
-		int wHeight = WIN_HEIGHTS[hIndex];
-		RECT r;
-		GetWindowRect(hWnd, &r);
-		if (hIndex <= 1) 
-		{
-			LONG_PTR oStyle = GetWindowLongPtr(hWnd, GWL_STYLE);
-			if (hIndex == 0) 
-			{
-				wHeight -= hBarHeight; // toolbarless window
-				r.top += hBarHeight;
-				SetWindowLongPtr(hWnd, GWL_STYLE, oStyle ^ WS_CAPTION);
-				SetLayeredWindowAttributes(hWnd, 0, 
-					255 * static_cast<int>(Settings.opacity) / 100, LWA_ALPHA);
-			}
-			else 
-			{
-				SetWindowLongPtr(hWnd, GWL_STYLE, oStyle | WS_CAPTION);
-				r.top -= hBarHeight; // restore toolbar
-				SetLayeredWindowAttributes(hWnd, 0, (255 * 90) / 100, LWA_ALPHA);
-			}
-			RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE); // immediate redraw
-		}
-		SetWindowPos(hWnd, nullptr, r.left, r.top, WIN_WIDTH, wHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+		SwitchGuiMode(hWnd);
 	}
 	break;
 	case WM_MOUSEWHEEL:
@@ -509,7 +479,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		hIni.SetValue("", "opacity", std::to_string(Settings.opacity).c_str());
 		hIni.SetValue("", "xpos", std::to_string(rect.left).c_str());
 		hIni.SetValue("", "ypos", std::to_string(rect.top).c_str());
-		hIni.SaveFile("settings.ini");
+		if (hIni.SaveFile("settings.ini") < 0)
+		{
+			MessageBoxA(nullptr, "Failed to update settings.ini.\nCheck your anti-virus program.", 
+				"ERROR", MB_ICONERROR);
+		}
 		DestroyWindow(hWnd);
 		break;
 	default:
@@ -604,6 +578,21 @@ DWORD WINAPI PauseOnUltProc(LPVOID lpParameter)
 				toggle_image(&hImageOff);
 				toggle_pause();
 			}
+		}
+		else if (IsCfActive && GetAsyncKeyState(Settings.s76pausekey)) {
+			if (Is76PauseActive) {
+				CheckDlgButton(mHwnd, IDC_CHECK, BST_UNCHECKED);
+				Is76PauseActive = FALSE;
+				hIni.SetValue("", "s76pause", "0");
+			}
+			else {
+				GetAsyncKeyState(Settings.ultkey);
+				GetAsyncKeyState(Settings.s76pausekey);
+				CheckDlgButton(mHwnd, IDC_CHECK, BST_CHECKED);
+				Is76PauseActive = TRUE;
+				hIni.SetValue("", "s76pause", "1");
+			}
+			MessageBeep(MB_OK);
 		}
 		Sleep(150);
 	}
@@ -714,11 +703,13 @@ std::string ReadFromPipe()
 				// if ult key was pressed while the bot was paused, 
 				// s76 pause will be triggered as soon as the bot is unpaused.
 				GetAsyncKeyState(Settings.ultkey);
+				GetAsyncKeyState(Settings.s76pausekey);
 				paused(FALSE);
 			}
 			else if (line.find("Login Successful") != std::string::npos) 
 			{
 				paused(FALSE);
+				SwitchGuiMode(mHwnd);
 			}
 			else if (sscanf_s(line.c_str(), "Loaded file %s", val, 10) == 1) 
 			{
@@ -734,7 +725,9 @@ std::string ReadFromPipe()
 			}
 			else if (sscanf_s(line.c_str(), "Pull = %s", val, 10) == 1) 
 			{
-				updated(PullValue, &CfCurrPull, val);
+				// temporary fix
+				/*updated(PullValue, &CfCurrPull, val);*/
+				SetWindowTextA(SpeedPull, (CfCurrSpeed + "  /  " + std::string(val)).c_str());
 			}
 			else if (sscanf_s(line.c_str(), "Pause Key = %s", val, 10) == 1) 
 			{
@@ -909,6 +902,37 @@ void ClipOrCenterWindowToMonitor(HWND hwnd, UINT flags)
 	GetWindowRect(hwnd, &rc);
 	ClipOrCenterRectToMonitor(&rc, flags);
 	SetWindowPos(hwnd, nullptr, rc.left, rc.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void SwitchGuiMode(HWND hWnd)
+{
+	// switch gui mode on right click. re-position window to compensate tool bar height
+	// hide fix and show button if flagged (using flagged account) is not set. b/c useless.
+	UINT mod = Settings.flagged ? NUM_STATE : NUM_STATE - 1;
+	hIndex = ++hIndex % mod;
+	int wHeight = WIN_HEIGHTS[hIndex];
+	RECT r;
+	GetWindowRect(hWnd, &r);
+	if (hIndex <= 1)
+	{
+		LONG_PTR oStyle = GetWindowLongPtr(hWnd, GWL_STYLE);
+		if (hIndex == 0)
+		{
+			wHeight -= hBarHeight; // toolbarless window
+			r.top += hBarHeight;
+			SetWindowLongPtr(hWnd, GWL_STYLE, oStyle ^ WS_CAPTION);
+			SetLayeredWindowAttributes(hWnd, 0,
+				255 * static_cast<int>(Settings.opacity) / 100, LWA_ALPHA);
+		}
+		else
+		{
+			SetWindowLongPtr(hWnd, GWL_STYLE, oStyle | WS_CAPTION);
+			r.top -= hBarHeight; // restore toolbar
+			SetLayeredWindowAttributes(hWnd, 0, (255 * 90) / 100, LWA_ALPHA);
+		}
+		RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE); // immediate redraw
+	}
+	SetWindowPos(hWnd, nullptr, r.left, r.top, WIN_WIDTH, wHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 std::string FindFile(const std::string fileFullPath, BOOL excludeSelf)

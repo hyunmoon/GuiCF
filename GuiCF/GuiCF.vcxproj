@@ -164,6 +164,7 @@
     <Image Include="off.png" />
     <Image Include="on.bmp" />
     <Image Include="on.png" />
+    <Image Include="on_burst.png" />
     <Image Include="s76_borderless.png" />
     <Image Include="small.ico" />
   </ItemGroup>

@@ -75,5 +75,8 @@
     <Image Include="s76_borderless.png">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="on_burst.png">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>
